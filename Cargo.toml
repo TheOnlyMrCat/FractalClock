@@ -1,0 +1,21 @@
+[package]
+name = "wgpu_fractal_clock"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "windowed"
+path = "src/main.rs"
+required-features = ["winit"]
+
+[features]
+bin = ["winit", "pollster"]
+
+[dependencies]
+time = { version = "0.3.7", features = ["local-offset"] }
+wgpu = "0.12"
+
+pollster = { version = "0.2.4", optional = true }
+winit = { version = "0.26", optional = true }
+bytemuck = "1.7.3"
+raw-window-handle = "0.4.2"

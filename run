@@ -1,0 +1,8 @@
+#- b!
+cargo build --bin windowed --features 'winit,pollster'
+#/
+
+#-
+METAL_DEVICE_WRAPPER_TYPE=1 ! Enable metal API validation.
+cargo run --bin windowed --features 'winit,pollster'
+#/
