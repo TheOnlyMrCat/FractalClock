@@ -25,6 +25,8 @@ pub struct Renderer {
 
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
+    resolve_texture: wgpu::Texture,
+    resolve_texture_view: wgpu::TextureView,
 
     fractal_render_pipeline: wgpu::RenderPipeline,
     vertices_compute_pipeline: wgpu::ComputePipeline,
@@ -203,12 +205,27 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: 4,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
         let depth_texture_view = depth_texture.create_view(&Default::default());
+
+        let resolve_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FC MSAA Resolve Texture"),
+            size: wgpu::Extent3d {
+                width: 640,
+                height: 480,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 4,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+        let resolve_texture_view = resolve_texture.create_view(&Default::default());
 
         let fractal_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("fractal.wgsl"));
@@ -249,7 +266,7 @@ impl Renderer {
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState {
-                    count: 1,
+                    count: 4,
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
@@ -307,6 +324,8 @@ impl Renderer {
             compute_pipeline_layout,
             depth_texture,
             depth_texture_view,
+            resolve_texture,
+            resolve_texture_view,
             fractal_render_pipeline,
             vertices_compute_pipeline,
             indices_compute_pipeline,
@@ -371,11 +390,25 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: 4,
             dimension: wgpu::TextureDimension::D2,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
         self.depth_texture_view = self.depth_texture.create_view(&Default::default());
+        self.resolve_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FC MSAA Resolve Texture"),
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 4,
+            dimension: wgpu::TextureDimension::D2,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+        self.resolve_texture_view = self.resolve_texture.create_view(&Default::default());
 
         let matrix = if width > height {
             let aspect = width as f32 / height as f32;
@@ -490,8 +523,8 @@ impl Renderer {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("FC Render Render Pass"),
             color_attachments: &[wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
+                view: &self.resolve_texture_view,
+                resolve_target: Some(&view),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.1,
