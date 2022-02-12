@@ -7,6 +7,16 @@ use winit::window::WindowBuilder;
 
 fn main() {
     let event_loop = EventLoop::new();
+
+    #[cfg(target_os = "macos")]
+    unsafe {
+        // work-around for https://github.com/rust-windowing/winit/issues/2051
+        use cocoa::appkit::NSApplication as _;
+        cocoa::appkit::NSApp().setActivationPolicy_(
+            cocoa::appkit::NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular,
+        );
+    }
+
     let window = WindowBuilder::new()
         .with_title("Fractal Clock")
         .build(&event_loop)

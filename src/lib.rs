@@ -1,5 +1,5 @@
 use raw_window_handle::HasRawWindowHandle;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, UtcOffset};
 use wgpu::util::DeviceExt;
 
 pub struct Renderer {
@@ -435,9 +435,8 @@ impl Renderer {
     }
 
     pub fn render(&self) {
-        let (hr, min, sec, ms) = OffsetDateTime::now_local()
-            .ok()
-            .unwrap_or_else(OffsetDateTime::now_utc) //TODO: Local time on mac using localtime_r
+        let (hr, min, sec, ms) = OffsetDateTime::now_utc()
+            .to_offset(local_timezone())
             .to_hms_milli();
         
         let second_frac = (sec as f32 / 60.0) + (ms as f32 / 60_000.0);
@@ -451,13 +450,13 @@ impl Renderer {
         let r3 = (colour_time * 0.003).sin() * 0.5 + 0.5;
         
         let mut colours = Vec::with_capacity(self.depth as usize);
-        for i in 0..self.depth {
+        for i in 0..=self.depth {
             let a = (self.depth - i) as f32 / self.depth as f32;
-            let h = (r2 + 0.5 * a).rem_euclid(1.0);
-            let s = 0.5 + 0.5 * r3 - 0.5 * (1.0 - a);
-            let v = 0.3 + 0.5 * r1;
+            let h = r2 + 0.5 * a;
+            let s = 0.7 + 0.5 * r3 - 0.5 * (1.0 - a);
+            let v = 0.5 + 0.5 * r1;
             if i == self.depth {
-                let [r, g, b] = rgb_from_hsv((h, s, v));
+                let [r, g, b] = rgb_from_hsv((h, 1.0, 1.0));
                 colours.push([r, g, b, 0.5]);
             } else {
                 let [r, g, b] = rgb_from_hsv((h, s, v));
@@ -618,4 +617,21 @@ pub fn rgb_from_hsv((h, s, v): (f32, f32, f32)) -> [f32; 3] {
         5 => [v, p, q],
         _ => unreachable!(),
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn local_timezone() -> UtcOffset {
+    UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC)
+}
+
+#[cfg(target_os = "macos")]
+fn local_timezone() -> UtcOffset {
+    // Workaround for `time` not providing local time on mac.
+    let mut time = 0;
+    let tm = unsafe {
+        // SAFETY: We know our app isn't multithreaded, so we can just use these functions.
+        libc::time(&mut time);
+        *libc::localtime(&time)
+    };
+    UtcOffset::from_whole_seconds(tm.tm_gmtoff as i32).unwrap_or(UtcOffset::UTC)
 }

@@ -1262,6 +1262,8 @@ name = "wgpu_fractal_clock"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cocoa",
+ "libc",
  "pollster",
  "raw-window-handle",
  "time",
