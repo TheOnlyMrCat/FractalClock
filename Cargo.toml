@@ -22,4 +22,6 @@ winit = { version = "0.26", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.24"
+
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -529,8 +529,8 @@ impl Renderer {
         for i in 0..=self.depth {
             let a = (self.depth - i) as f32 / self.depth as f32;
             let h = r2 + 0.5 * a;
-            let s = 0.7 + 0.5 * r3 - 0.5 * (1.0 - a);
-            let v = 0.5 + 0.5 * r1;
+            let s = 0.5 + 0.5 * r3 - 0.5 * (1.0 - a);
+            let v = 0.3 + 0.5 * r1;
             if i == self.depth {
                 let [r, g, b] = rgb_from_hsv((h, 1.0, 1.0));
                 colours.push([r, g, b, 0.5]);
@@ -745,7 +745,6 @@ pub fn vertex_count_for_depth(depth: u32) -> u64 {
 
 /// All ranges in 0-1, rgb is linear.
 pub fn rgb_from_hsv((h, s, v): (f32, f32, f32)) -> [f32; 3] {
-    #![allow(clippy::many_single_char_names)]
     let h = (h.fract() + 1.0).fract(); // wrap
     let s = s.clamp(0.0, 1.0);
 
@@ -765,14 +764,14 @@ pub fn rgb_from_hsv((h, s, v): (f32, f32, f32)) -> [f32; 3] {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(unix))]
 fn local_timezone() -> UtcOffset {
     UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn local_timezone() -> UtcOffset {
-    // Workaround for `time` not providing local time on mac.
+    // Workaround for `time` not providing local time on unix systems.
     let mut time = 0;
     let tm = unsafe {
         // SAFETY: We know our app isn't multithreaded, so we can just use these functions.
