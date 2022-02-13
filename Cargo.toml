@@ -3,13 +3,16 @@ name = "wgpu_fractal_clock"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [[bin]]
 name = "windowed"
 path = "src/main.rs"
-required-features = ["winit"]
+required-features = ["bin"]
 
 [features]
-bin = ["winit", "pollster"]
+bin = ["winit"]
 
 [dependencies]
 bytemuck = { version = "1.7.3", features = ["derive"] }
@@ -17,7 +20,7 @@ raw-window-handle = "0.4.2"
 time = { version = "0.3.7", features = ["local-offset"] }
 wgpu = "0.12"
 
-pollster = { version = "0.2.4", optional = true }
+pollster = "0.2.4"
 winit = { version = "0.26", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

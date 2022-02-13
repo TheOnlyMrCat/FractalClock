@@ -1,4 +1,6 @@
-use raw_window_handle::HasRawWindowHandle;
+use libc::c_void;
+use pollster::FutureExt;
+use raw_window_handle::{HasRawWindowHandle, AppKitHandle};
 use time::{OffsetDateTime, UtcOffset};
 use wgpu::util::DeviceExt;
 
@@ -779,4 +781,46 @@ fn local_timezone() -> UtcOffset {
         *libc::localtime(&time)
     };
     UtcOffset::from_whole_seconds(tm.tm_gmtoff as i32).unwrap_or(UtcOffset::UTC)
+}
+
+#[no_mangle]
+pub extern "C" fn renderer_create_nsview(ns_view: *mut c_void, width: u32, height: u32) -> *mut Renderer {
+    let mut handle = raw_window_handle::AppKitHandle::empty();
+    handle.ns_view = ns_view;
+
+    struct Handle {
+        handle: raw_window_handle::RawWindowHandle,
+    }
+
+    unsafe impl HasRawWindowHandle for Handle {
+        fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
+            self.handle
+        }
+    }
+
+    let handle = Handle { handle: raw_window_handle::RawWindowHandle::AppKit(handle) };
+
+    let renderer = Box::new(Renderer::new(10, &handle, (width, height)).block_on());
+    Box::into_raw(renderer)
+}
+
+/// ## Safety
+/// The pointer must have been returned by a call to `create_renderer`.
+#[no_mangle]
+pub unsafe extern "C" fn renderer_destroy(renderer: *mut Renderer) {
+    Box::from_raw(renderer);
+}
+
+/// ## Safety
+/// The pointer must have been returned by a call to `create_renderer`.
+#[no_mangle]
+pub unsafe extern "C" fn renderer_render(renderer: *mut Renderer) {
+    (*renderer).render();
+}
+
+/// ## Safety
+/// The pointer must have been returned by a call to `create_renderer`.
+#[no_mangle]
+pub unsafe extern "C" fn renderer_resize(renderer: *mut Renderer, width: u32, height: u32) {
+    (*renderer).resize((width, height));
 }
