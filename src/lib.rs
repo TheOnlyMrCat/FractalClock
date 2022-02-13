@@ -103,7 +103,7 @@ impl Renderer {
 
         let clock_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FC Clock Vertex Buffer"),
-            size: std::mem::size_of::<ClockRay>() as u64 * 3,
+            size: std::mem::size_of::<ClockRay>() as u64 * 75,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -389,6 +389,7 @@ impl Renderer {
 
         renderer.prepare_indices();
         renderer.resize((width, height));
+        renderer.write_ticks();
         renderer
     }
 
@@ -431,6 +432,26 @@ impl Renderer {
         self.queue.submit([encoder.finish()]);
     }
 
+    fn write_ticks(&self) {
+        self.queue.write_buffer(
+            &self.clock_buffer,
+            std::mem::size_of::<ClockRay>() as u64 * 3,
+            bytemuck::cast_slice(&(0..12).flat_map(|i| {
+                std::iter::once(ClockRay {
+                    start: 0.45,
+                    end: 0.5,
+                    direction: (i as f32 * std::f32::consts::TAU / 12.0),
+                    half_thickness: 0.004784689,
+                }).chain((0..5).map(move |j| ClockRay {
+                    start: 0.475,
+                    end: 0.5,
+                    direction: (i as f32 * std::f32::consts::TAU / 12.0) + (j as f32 * std::f32::consts::TAU / 60.0),
+                    half_thickness: 0.0023923445,
+                }))
+            }).collect::<Vec<_>>()),
+        );
+    }
+
     pub fn resize(&mut self, (width, height): (u32, u32)) {
         self.config.width = width;
         self.config.height = height;
@@ -468,16 +489,16 @@ impl Renderer {
         let matrix = if width > height {
             let aspect = width as f32 / height as f32;
             [
-                [1.0 / (1.4 * aspect), 0.0, 0.0, 0.0],
-                [0.0, 1.0 / 1.4, 0.0, 0.0],
+                [1.0 / (1.35 * aspect), 0.0, 0.0, 0.0],
+                [0.0, 1.0 / 1.35, 0.0, 0.0],
                 [0.0, 0.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]
         } else {
             let aspect = height as f32 / width as f32;
             [
-                [1.0 / 1.4, 0.0, 0.0, 0.0],
-                [0.0, 1.0 / (1.4 * aspect), 0.0, 0.0],
+                [1.0 / 1.35, 0.0, 0.0, 0.0],
+                [0.0, 1.0 / (1.35 * aspect), 0.0, 0.0],
                 [0.0, 0.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]
@@ -634,7 +655,7 @@ impl Renderer {
         pass.set_pipeline(&self.clock_render_pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
         pass.set_vertex_buffer(0, self.clock_buffer.slice(..));
-        pass.draw(0..4, 0..3);
+        pass.draw(0..4, 0..75);
 
         drop(pass);
 
