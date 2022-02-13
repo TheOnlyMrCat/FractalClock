@@ -18,6 +18,7 @@ pub struct Renderer {
     colour_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    clock_buffer: wgpu::Buffer,
 
     storage_bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group_layout: wgpu::BindGroupLayout,
@@ -29,6 +30,7 @@ pub struct Renderer {
     resolve_texture_view: wgpu::TextureView,
 
     fractal_render_pipeline: wgpu::RenderPipeline,
+    clock_render_pipeline: wgpu::RenderPipeline,
     vertices_compute_pipeline: wgpu::ComputePipeline,
     indices_compute_pipeline: wgpu::ComputePipeline,
 
@@ -96,6 +98,13 @@ impl Renderer {
             label: Some("FC Camera Buffer"),
             size: std::mem::size_of::<[f64; 16]>() as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+
+        let clock_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FC Clock Vertex Buffer"),
+            size: std::mem::size_of::<ClockRay>() as u64 * 3,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -229,6 +238,8 @@ impl Renderer {
 
         let fractal_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("fractal.wgsl"));
+        let clock_shader_module = 
+            device.create_shader_module(&wgpu::include_wgsl!("clock.wgsl"));
         let vertices_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("vertices.wgsl"));
         let indices_shader_module =
@@ -282,6 +293,48 @@ impl Renderer {
                 multiview: None,
             });
 
+        let clock_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("FC Clock Render Pipeline"),
+                layout: Some(&fractal_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &clock_shader_module,
+                    entry_point: "vs_main",
+                    buffers: &[ClockRay::vertex_attributes()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 4,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &clock_shader_module,
+                    entry_point: "fs_main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Bgra8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+                multiview: None,
+            });
+
         let compute_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("FC Compute Pipeline Layout"),
@@ -319,6 +372,7 @@ impl Renderer {
             colour_bind_group,
             camera_buffer,
             camera_bind_group,
+            clock_buffer,
             storage_bind_group_layout: compute_storage_bind_group_layout,
             uniform_bind_group_layout: compute_uniform_bind_group_layout,
             compute_pipeline_layout,
@@ -327,6 +381,7 @@ impl Renderer {
             resolve_texture,
             resolve_texture_view,
             fractal_render_pipeline,
+            clock_render_pipeline,
             vertices_compute_pipeline,
             indices_compute_pipeline,
             depth,
@@ -342,7 +397,7 @@ impl Renderer {
         let workgroup_y = workgroup_size / 256 + 1;
         let workgroup_x = workgroup_size % 256 + 1;
 
-        //TODO: If more offsets required. Consider push constants if on native?
+        //TODO: More offsets required? Consider push constants if on native?
         let null_offset = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -469,6 +524,31 @@ impl Renderer {
             bytemuck::cast_slice(&colours),
         );
 
+        self.queue.write_buffer(
+            &self.clock_buffer,
+            0,
+            bytemuck::cast_slice(&[
+                ClockRay {
+                    start: 0.0,
+                    end: 0.175,
+                    direction: hour_frac * std::f32::consts::TAU,
+                    half_thickness: 0.02085,
+                },
+                ClockRay {
+                    start: 0.0,
+                    end: 0.4,
+                    direction: minute_frac * std::f32::consts::TAU,
+                    half_thickness: 0.0095,
+                },
+                ClockRay {
+                    start: 0.0,
+                    end: 0.4,
+                    direction: second_frac * std::f32::consts::TAU,
+                    half_thickness: 0.005,
+                },
+            ]),
+        );
+
         let uniform_buffers = (0..self.depth).map(|depth| {
             let uniform_buffer = self
                 .device
@@ -549,7 +629,12 @@ impl Renderer {
         pass.set_bind_group(1, &self.colour_bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..(vertex_count_for_depth(self.depth) * 2 - 2) as _, 0, 0..1);
+        pass.draw_indexed(6..(vertex_count_for_depth(self.depth) * 2 - 2) as _, 0, 0..1);
+
+        pass.set_pipeline(&self.clock_render_pipeline);
+        pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.clock_buffer.slice(..));
+        pass.draw(0..4, 0..3);
 
         drop(pass);
 
@@ -586,6 +671,46 @@ pub fn fractal_vertex_attributes() -> wgpu::VertexBufferLayout<'static> {
                 shader_location: 2,
             },
         ],
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ClockRay {
+    start: f32,
+    end: f32,
+    direction: f32,
+    half_thickness: f32,
+}
+
+impl ClockRay {
+    fn vertex_attributes() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<ClockRay>() as _,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: std::mem::size_of::<f32>() as _,
+                    shader_location: 1,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: (std::mem::size_of::<f32>() * 2) as _,
+                    shader_location: 2,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: (std::mem::size_of::<f32>() * 3) as _,
+                    shader_location: 3,
+                },
+            ],
+        }
     }
 }
 
