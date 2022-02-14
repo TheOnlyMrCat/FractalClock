@@ -22,7 +22,7 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut renderer = Renderer::new(10, &window, window.inner_size().into()).block_on();
+    let mut renderer = Renderer::new(9, &window, window.inner_size().into()).block_on();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {

@@ -1,11 +1,10 @@
 use libc::c_void;
 use pollster::FutureExt;
-use raw_window_handle::{HasRawWindowHandle, AppKitHandle};
+use raw_window_handle::HasRawWindowHandle;
 use time::{OffsetDateTime, UtcOffset};
 use wgpu::util::DeviceExt;
 
 pub struct Renderer {
-    instance: wgpu::Instance,
     device: wgpu::Device,
     queue: wgpu::Queue,
 
@@ -22,9 +21,7 @@ pub struct Renderer {
     camera_bind_group: wgpu::BindGroup,
     clock_buffer: wgpu::Buffer,
 
-    storage_bind_group_layout: wgpu::BindGroupLayout,
-    uniform_bind_group_layout: wgpu::BindGroupLayout,
-    compute_pipeline_layout: wgpu::PipelineLayout,
+    compute_uniform_bind_group_layout: wgpu::BindGroupLayout,
 
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
@@ -71,7 +68,7 @@ impl Renderer {
             format: wgpu::TextureFormat::Bgra8Unorm,
             width,
             height,
-            present_mode: wgpu::PresentMode::Mailbox,
+            present_mode: wgpu::PresentMode::Fifo,
         };
         surface.configure(&device, &config);
 
@@ -361,7 +358,6 @@ impl Renderer {
             });
 
         let mut renderer = Self {
-            instance,
             device,
             queue,
             surface,
@@ -375,9 +371,7 @@ impl Renderer {
             camera_buffer,
             camera_bind_group,
             clock_buffer,
-            storage_bind_group_layout: compute_storage_bind_group_layout,
-            uniform_bind_group_layout: compute_uniform_bind_group_layout,
-            compute_pipeline_layout,
+            compute_uniform_bind_group_layout,
             depth_texture,
             depth_texture_view,
             resolve_texture,
@@ -410,7 +404,7 @@ impl Renderer {
             });
         let null_offset_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Null offset bind group"),
-            layout: &self.uniform_bind_group_layout,
+            layout: &self.compute_uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer(null_offset.as_entire_buffer_binding()),
@@ -524,20 +518,20 @@ impl Renderer {
         // Function adapted from https://github.com/HackerPoet/FractalClock
         let colour_time = ms as f32 / 1000.0 + sec as f32 + min as f32 * 60.0 + hr as f32 * 3600.0;
         let r1 = (colour_time * 0.017).sin() * 0.5 + 0.5;
-        let r2 = (colour_time * 0.011).sin() * 0.5 + 0.5;
+        let r2 = (colour_time * -0.011).sin() * 0.5 + 0.5;
         let r3 = (colour_time * 0.003).sin() * 0.5 + 0.5;
         
         let mut colours = Vec::with_capacity(self.depth as usize);
-        for i in 0..=self.depth {
+        for i in 1..=self.depth {
             let a = (self.depth - i) as f32 / self.depth as f32;
             let h = r2 + 0.5 * a;
             let s = 0.5 + 0.5 * r3 - 0.5 * (1.0 - a);
-            let v = 0.3 + 0.5 * r1;
+            let v = 0.2 + 0.3 * r1 + 0.4 * a;
             if i == self.depth {
-                let [r, g, b] = rgb_from_hsv((h, 1.0, 1.0));
+                let [r, g, b] = rgb_from_hsl((h, 1.0, 0.5));
                 colours.push([r, g, b, 0.5]);
             } else {
-                let [r, g, b] = rgb_from_hsv((h, s, v));
+                let [r, g, b] = rgb_from_hsl((h, s, v));
                 colours.push([r, g, b, 1.0]);
             }
         }
@@ -588,7 +582,7 @@ impl Renderer {
 
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("FC Uniform Buffer Bind Group"),
-                layout: &self.uniform_bind_group_layout,
+                layout: &self.compute_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer(uniform_buffer.as_entire_buffer_binding()),
@@ -766,6 +760,15 @@ pub fn rgb_from_hsv((h, s, v): (f32, f32, f32)) -> [f32; 3] {
     }
 }
 
+pub fn rgb_from_hsl((h, s, l): (f32, f32, f32)) -> [f32; 3] {
+    let a = s * l.min(1.0 - l);
+    let f = |n: f32| {
+        let k = (n + h / (1.0 / 12.0)) % 12.0;
+        l - a * (k-3.0).min(9.0-k).min(1.0).max(-1.0)
+    };
+    [f(0.0), f(8.0), f(4.0)]
+}
+
 #[cfg(not(unix))]
 fn local_timezone() -> UtcOffset {
     UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC)
@@ -783,8 +786,11 @@ fn local_timezone() -> UtcOffset {
     UtcOffset::from_whole_seconds(tm.tm_gmtoff as i32).unwrap_or(UtcOffset::UTC)
 }
 
+/// ## Safety
+/// `ns_view` must be a valid pointer to an active `NSView`, and must remain valid for the
+/// lifetime of the returned `Renderer`
 #[no_mangle]
-pub extern "C" fn renderer_create_nsview(ns_view: *mut c_void, width: u32, height: u32) -> *mut Renderer {
+pub unsafe extern "C" fn renderer_create_nsview(ns_view: *mut c_void, width: u32, height: u32) -> *mut Renderer {
     let mut handle = raw_window_handle::AppKitHandle::empty();
     handle.ns_view = ns_view;
 

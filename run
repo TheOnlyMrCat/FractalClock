@@ -1,5 +1,6 @@
 #- b!
 cargo build --bin windowed --features bin
+cargo build --release
 #/
 
 #-
