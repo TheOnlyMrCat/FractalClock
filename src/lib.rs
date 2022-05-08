@@ -881,7 +881,7 @@ fn local_timezone() -> UtcOffset {
 /// `ns_view` must be a valid pointer to an active `NSView`, and must remain valid for the
 /// lifetime of the returned `Renderer`.
 #[no_mangle]
-pub unsafe extern "C" fn renderer_create_nsview(
+pub unsafe extern "C" fn fc_create_nsview(
     ns_view: *mut c_void,
     depth: u32,
     width: u32,
@@ -911,7 +911,7 @@ pub unsafe extern "C" fn renderer_create_nsview(
 /// ## Safety
 /// The pointer must have been returned by a call to `create_renderer`.
 #[no_mangle]
-pub unsafe extern "C" fn renderer_destroy(renderer: *mut Renderer) {
+pub unsafe extern "C" fn fc_destroy(renderer: *mut Renderer) {
     Box::from_raw(renderer);
 }
 
@@ -920,13 +920,20 @@ pub unsafe extern "C" fn renderer_destroy(renderer: *mut Renderer) {
 /// 
 /// `libc::setenv` must not cause a data race with `libc::localtime`.
 #[no_mangle]
-pub unsafe extern "C" fn renderer_render(renderer: *mut Renderer) {
+pub unsafe extern "C" fn fc_render(renderer: *mut Renderer) {
     (*renderer).render();
+}
+
+/// ## Safety
+/// The pointer must have been returned by a call to `create_renderer`
+#[no_mangle]
+pub unsafe extern "C" fn fc_set_depth(renderer: *mut Renderer, depth: u32) {
+    (*renderer).set_depth(depth);
 }
 
 /// ## Safety
 /// The pointer must have been returned by a call to `create_renderer`.
 #[no_mangle]
-pub unsafe extern "C" fn renderer_resize(renderer: *mut Renderer, width: u32, height: u32) {
+pub unsafe extern "C" fn fc_resize(renderer: *mut Renderer, width: u32, height: u32) {
     (*renderer).resize((width, height));
 }
