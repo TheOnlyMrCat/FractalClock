@@ -1,7 +1,7 @@
 use pollster::FutureExt;
 use wgpu_fractal_clock::Renderer;
 
-use winit::event::{Event, WindowEvent};
+use winit::event::{Event, WindowEvent, VirtualKeyCode, ElementState};
 use winit::event_loop::{EventLoop, ControlFlow};
 use winit::window::WindowBuilder;
 
@@ -22,7 +22,8 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut renderer = Renderer::new(9, &window, window.inner_size().into()).block_on();
+    let mut depth = 4;
+    let mut renderer = Renderer::new(depth, &window, window.inner_size().into()).block_on();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -31,6 +32,16 @@ fn main() {
         } => *control_flow = ControlFlow::Exit,
         Event::WindowEvent { event: WindowEvent::Resized(new_size), .. } => {
             renderer.resize(new_size.into());
+        }
+        Event::WindowEvent { event: WindowEvent::KeyboardInput { input, .. }, .. } => {
+            if input.state == ElementState::Pressed {
+                match input.virtual_keycode {
+                    Some(VirtualKeyCode::Up) => depth += 1,
+                    Some(VirtualKeyCode::Down) if depth > 1 => depth -= 1,
+                    _ => (),
+                }
+                renderer.set_depth(depth);
+            }
         }
         Event::MainEventsCleared => {
             renderer.render();

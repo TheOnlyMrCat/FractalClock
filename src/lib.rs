@@ -22,6 +22,8 @@ pub struct Renderer {
     clock_buffer: wgpu::Buffer,
 
     compute_uniform_bind_group_layout: wgpu::BindGroupLayout,
+    compute_storage_bind_group_layout: wgpu::BindGroupLayout,
+    vertex_storage_bind_group_layout: wgpu::BindGroupLayout,
 
     depth_texture: wgpu::Texture,
     depth_texture_view: wgpu::TextureView,
@@ -33,11 +35,15 @@ pub struct Renderer {
     vertices_compute_pipeline: wgpu::ComputePipeline,
     indices_compute_pipeline: wgpu::ComputePipeline,
 
-    depth: u32,
+    fractal_depth: u32,
 }
 
 impl Renderer {
-    pub async fn new(depth: u32, window: &impl HasRawWindowHandle, (width, height): (u32, u32)) -> Self {
+    pub async fn new(
+        fractal_depth: u32,
+        window: &impl HasRawWindowHandle,
+        (width, height): (u32, u32),
+    ) -> Self {
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
 
         let surface = unsafe { instance.create_surface(window) };
@@ -74,21 +80,21 @@ impl Renderer {
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FC Vertex Buffer"),
-            size: vertex_count_for_depth(depth) * vertex_size() as u64,
+            size: vertex_count_for_depth(fractal_depth) * vertex_size() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FC Index Buffer"),
-            size: vertex_count_for_depth(depth) * vertex_size() as u64,
+            size: vertex_count_for_depth(fractal_depth) * vertex_size() as u64,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
 
         let colour_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FC Colour Buffer"),
-            size: std::mem::size_of::<[f64; 4]>() as u64 * depth as u64,
+            size: std::mem::size_of::<[f64; 4]>() as u64 * fractal_depth as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
@@ -122,7 +128,6 @@ impl Renderer {
                 }],
             });
 
-
         let vertex_storage_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("FC Storage Bind Group Layout (Vertex)"),
@@ -152,7 +157,7 @@ impl Renderer {
                     count: None,
                 }],
             });
-        
+
         let vertex_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("FC Uniform Bind Group Layout (Vertex)"),
@@ -167,7 +172,6 @@ impl Renderer {
                     count: None,
                 }],
             });
-
 
         let vertex_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("FC Vertex Bind Group"),
@@ -237,18 +241,21 @@ impl Renderer {
 
         let fractal_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("fractal.wgsl"));
-        let clock_shader_module = 
-            device.create_shader_module(&wgpu::include_wgsl!("clock.wgsl"));
+        let clock_shader_module = device.create_shader_module(&wgpu::include_wgsl!("clock.wgsl"));
         let vertices_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("vertices.wgsl"));
         let indices_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("indices.wgsl"));
 
-        let fractal_render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("FC Fractal Render Pipeline Layout"),
-            bind_group_layouts: &[&vertex_uniform_bind_group_layout, &vertex_storage_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let fractal_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("FC Fractal Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &vertex_uniform_bind_group_layout,
+                    &vertex_storage_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
 
         let fractal_render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -292,10 +299,19 @@ impl Renderer {
                 multiview: None,
             });
 
+        let clock_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("FC Fractal Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &vertex_uniform_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
         let clock_render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("FC Clock Render Pipeline"),
-                layout: Some(&fractal_render_pipeline_layout),
+                layout: Some(&clock_render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &clock_shader_module,
                     entry_point: "vs_main",
@@ -337,7 +353,10 @@ impl Renderer {
         let compute_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("FC Compute Pipeline Layout"),
-                bind_group_layouts: &[&compute_storage_bind_group_layout, &compute_uniform_bind_group_layout],
+                bind_group_layouts: &[
+                    &compute_storage_bind_group_layout,
+                    &compute_uniform_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -372,6 +391,8 @@ impl Renderer {
             camera_bind_group,
             clock_buffer,
             compute_uniform_bind_group_layout,
+            compute_storage_bind_group_layout,
+            vertex_storage_bind_group_layout,
             depth_texture,
             depth_texture_view,
             resolve_texture,
@@ -380,7 +401,7 @@ impl Renderer {
             clock_render_pipeline,
             vertices_compute_pipeline,
             indices_compute_pipeline,
-            depth,
+            fractal_depth,
         };
 
         renderer.prepare_indices();
@@ -390,7 +411,7 @@ impl Renderer {
     }
 
     fn prepare_indices(&self) {
-        let workgroup_size = workgroup_size_for_depth(self.depth) as u32;
+        let workgroup_size = workgroup_size_for_depth(self.fractal_depth) as u32;
         let workgroup_y = workgroup_size / 256 + 1;
         let workgroup_x = workgroup_size % 256 + 1;
 
@@ -428,23 +449,87 @@ impl Renderer {
         self.queue.submit([encoder.finish()]);
     }
 
+    pub fn set_depth(&mut self, fractal_depth: u32) {
+        let fractal_depth = fractal_depth.max(1);
+        self.fractal_depth = fractal_depth;
+
+        self.vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FC Vertex Buffer"),
+            size: vertex_count_for_depth(fractal_depth) * vertex_size() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        self.vertex_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("FC Vertex Bind Group"),
+            layout: &self.compute_storage_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    self.vertex_buffer.as_entire_buffer_binding(),
+                ),
+            }],
+        });
+
+        self.index_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FC Index Buffer"),
+            size: vertex_count_for_depth(fractal_depth) * vertex_size() as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        self.index_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("FC Index Bind Group"),
+            layout: &self.compute_storage_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    self.index_buffer.as_entire_buffer_binding(),
+                ),
+            }],
+        });
+
+        self.colour_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FC Colour Buffer"),
+            size: std::mem::size_of::<[f64; 4]>() as u64 * fractal_depth as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        self.colour_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("FC Colour Bind Group"),
+            layout: &self.vertex_storage_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    self.colour_buffer.as_entire_buffer_binding(),
+                ),
+            }],
+        });
+
+        self.prepare_indices();
+    }
+
     fn write_ticks(&self) {
         self.queue.write_buffer(
             &self.clock_buffer,
             std::mem::size_of::<ClockRay>() as u64 * 3,
-            bytemuck::cast_slice(&(0..12).flat_map(|i| {
-                std::iter::once(ClockRay {
-                    start: 0.45,
-                    end: 0.5,
-                    direction: (i as f32 * std::f32::consts::TAU / 12.0),
-                    half_thickness: 0.004784689,
-                }).chain((0..5).map(move |j| ClockRay {
-                    start: 0.475,
-                    end: 0.5,
-                    direction: (i as f32 * std::f32::consts::TAU / 12.0) + (j as f32 * std::f32::consts::TAU / 60.0),
-                    half_thickness: 0.0023923445,
-                }))
-            }).collect::<Vec<_>>()),
+            bytemuck::cast_slice(
+                &(0..12)
+                    .flat_map(|i| {
+                        std::iter::once(ClockRay {
+                            start: 0.45,
+                            end: 0.5,
+                            direction: (i as f32 * std::f32::consts::TAU / 12.0),
+                            half_thickness: 0.004784689,
+                        })
+                        .chain((0..5).map(move |j| ClockRay {
+                            start: 0.475,
+                            end: 0.5,
+                            direction: (i as f32 * std::f32::consts::TAU / 12.0)
+                                + (j as f32 * std::f32::consts::TAU / 60.0),
+                            half_thickness: 0.0023923445,
+                        }))
+                    })
+                    .collect::<Vec<_>>(),
+            ),
         );
     }
 
@@ -499,18 +584,15 @@ impl Renderer {
                 [0.0, 0.0, 0.0, 1.0],
             ]
         };
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&matrix),
-        );
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&matrix));
     }
 
     pub fn render(&self) {
         let (hr, min, sec, ms) = OffsetDateTime::now_utc()
             .to_offset(local_timezone())
             .to_hms_milli();
-        
+
         let second_frac = (sec as f32 / 60.0) + (ms as f32 / 60_000.0);
         let minute_frac = (min as f32 / 60.0) + (second_frac / 60.0);
         let hour_frac = (hr as f32 / 12.0) + ((minute_frac / 60.0) * (60.0 / 12.0));
@@ -520,14 +602,14 @@ impl Renderer {
         let r1 = (colour_time * 0.017).sin() * 0.5 + 0.5;
         let r2 = (colour_time * -0.011).sin() * 0.5 + 0.5;
         let r3 = (colour_time * 0.003).sin() * 0.5 + 0.5;
-        
-        let mut colours = Vec::with_capacity(self.depth as usize);
-        for i in 1..=self.depth {
-            let a = (self.depth - i) as f32 / self.depth as f32;
+
+        let mut colours = Vec::with_capacity(self.fractal_depth as usize);
+        for i in 1..=self.fractal_depth {
+            let a = (self.fractal_depth - i) as f32 / self.fractal_depth as f32;
             let h = r2 + 0.5 * a;
             let s = 0.5 + 0.5 * r3 - 0.5 * (1.0 - a);
             let v = 0.2 + 0.3 * r1 + 0.4 * a;
-            if i == self.depth {
+            if i == self.fractal_depth {
                 let [r, g, b] = rgb_from_hsl((h, 1.0, 0.5));
                 colours.push([r, g, b, 0.5]);
             } else {
@@ -535,11 +617,8 @@ impl Renderer {
                 colours.push([r, g, b, 1.0]);
             }
         }
-        self.queue.write_buffer(
-            &self.colour_buffer,
-            0,
-            bytemuck::cast_slice(&colours),
-        );
+        self.queue
+            .write_buffer(&self.colour_buffer, 0, bytemuck::cast_slice(&colours));
 
         self.queue.write_buffer(
             &self.clock_buffer,
@@ -566,31 +645,35 @@ impl Renderer {
             ]),
         );
 
-        let uniform_buffers = (0..self.depth).map(|depth| {
-            let uniform_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("FC Uniform Buffer"),
-                    contents: bytemuck::cast_slice(&[
-                        depth as f32,
-                        second_frac * std::f32::consts::TAU,
-                        minute_frac * std::f32::consts::TAU,
-                        hour_frac * std::f32::consts::TAU,
-                    ]),
-                    usage: wgpu::BufferUsages::UNIFORM,
+        let uniform_buffers = (0..self.fractal_depth)
+            .map(|depth| {
+                let uniform_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("FC Uniform Buffer"),
+                            contents: bytemuck::cast_slice(&[
+                                depth as f32,
+                                second_frac * std::f32::consts::TAU,
+                                minute_frac * std::f32::consts::TAU,
+                                hour_frac * std::f32::consts::TAU,
+                            ]),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                        });
+
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("FC Uniform Buffer Bind Group"),
+                    layout: &self.compute_uniform_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(
+                            uniform_buffer.as_entire_buffer_binding(),
+                        ),
+                    }],
                 });
 
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("FC Uniform Buffer Bind Group"),
-                layout: &self.compute_uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(uniform_buffer.as_entire_buffer_binding()),
-                }],
-            });
-
-            (uniform_buffer, bind_group)
-        }).collect::<Vec<_>>();
+                (uniform_buffer, bind_group)
+            })
+            .collect::<Vec<_>>();
 
         let mut encoder = self
             .device
@@ -615,7 +698,9 @@ impl Renderer {
         drop(pass);
 
         let surface_texture = self.surface.get_current_texture().unwrap();
-        let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("FC Render Render Pass"),
             color_attachments: &[wgpu::RenderPassColorAttachment {
@@ -641,12 +726,18 @@ impl Renderer {
             }),
         });
 
-        pass.set_pipeline(&self.fractal_render_pipeline);
-        pass.set_bind_group(0, &self.camera_bind_group, &[]);
-        pass.set_bind_group(1, &self.colour_bind_group, &[]);
-        pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(6..(vertex_count_for_depth(self.depth) * 2 - 2) as _, 0, 0..1);
+        if self.fractal_depth > 1 {
+            pass.set_pipeline(&self.fractal_render_pipeline);
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(1, &self.colour_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(
+                6..(vertex_count_for_depth(self.fractal_depth) * 2 - 2) as _,
+                0,
+                0..1,
+            );
+        }
 
         pass.set_pipeline(&self.clock_render_pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -764,7 +855,7 @@ pub fn rgb_from_hsl((h, s, l): (f32, f32, f32)) -> [f32; 3] {
     let a = s * l.min(1.0 - l);
     let f = |n: f32| {
         let k = (n + h / (1.0 / 12.0)) % 12.0;
-        l - a * (k-3.0).min(9.0-k).min(1.0).max(-1.0)
+        l - a * (k - 3.0).min(9.0 - k).min(1.0).max(-1.0)
     };
     [f(0.0), f(8.0), f(4.0)]
 }
@@ -788,9 +879,14 @@ fn local_timezone() -> UtcOffset {
 
 /// ## Safety
 /// `ns_view` must be a valid pointer to an active `NSView`, and must remain valid for the
-/// lifetime of the returned `Renderer`
+/// lifetime of the returned `Renderer`.
 #[no_mangle]
-pub unsafe extern "C" fn renderer_create_nsview(ns_view: *mut c_void, width: u32, height: u32) -> *mut Renderer {
+pub unsafe extern "C" fn renderer_create_nsview(
+    ns_view: *mut c_void,
+    depth: u32,
+    width: u32,
+    height: u32,
+) -> *mut Renderer {
     let mut handle = raw_window_handle::AppKitHandle::empty();
     handle.ns_view = ns_view;
 
@@ -804,9 +900,11 @@ pub unsafe extern "C" fn renderer_create_nsview(ns_view: *mut c_void, width: u32
         }
     }
 
-    let handle = Handle { handle: raw_window_handle::RawWindowHandle::AppKit(handle) };
+    let handle = Handle {
+        handle: raw_window_handle::RawWindowHandle::AppKit(handle),
+    };
 
-    let renderer = Box::new(Renderer::new(10, &handle, (width, height)).block_on());
+    let renderer = Box::new(Renderer::new(depth, &handle, (width, height)).block_on());
     Box::into_raw(renderer)
 }
 
@@ -819,6 +917,8 @@ pub unsafe extern "C" fn renderer_destroy(renderer: *mut Renderer) {
 
 /// ## Safety
 /// The pointer must have been returned by a call to `create_renderer`.
+/// 
+/// `libc::setenv` must not cause a data race with `libc::localtime`.
 #[no_mangle]
 pub unsafe extern "C" fn renderer_render(renderer: *mut Renderer) {
     (*renderer).render();

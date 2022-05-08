@@ -1,9 +1,7 @@
-#- b!
+[fc:build]
 cargo build --bin windowed --features bin
 cargo build --release
-#/
 
-#-
-METAL_DEVICE_WRAPPER_TYPE=1 ! Enable metal API validation.
+[fc:run]
+export METAL_DEVICE_WRAPPER_TYPE=1
 cargo run --bin windowed --features bin
-#/
