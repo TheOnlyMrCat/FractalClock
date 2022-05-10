@@ -21,6 +21,8 @@ pub struct Renderer {
     camera_bind_group: wgpu::BindGroup,
     clock_buffer: wgpu::Buffer,
 
+    initial_vertex_uniform_buffers: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+
     compute_uniform_bind_group_layout: wgpu::BindGroupLayout,
     compute_storage_bind_group_layout: wgpu::BindGroupLayout,
     vertex_storage_bind_group_layout: wgpu::BindGroupLayout,
@@ -376,6 +378,32 @@ impl Renderer {
                 entry_point: "main",
             });
 
+        let initial_vertex_uniform_buffers = (0..fractal_depth)
+            .map(|_| {
+                let uniform_buffer =
+                    device
+                        .create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("FC Uniform Buffer"),
+                            size: std::mem::size_of::<[f32; 4]>() as u64,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("FC Uniform Buffer Bind Group"),
+                    layout: &compute_uniform_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(
+                            uniform_buffer.as_entire_buffer_binding(),
+                        ),
+                    }],
+                });
+
+                (uniform_buffer, bind_group)
+            })
+            .collect::<Vec<_>>();
+
         let mut renderer = Self {
             device,
             queue,
@@ -390,6 +418,7 @@ impl Renderer {
             camera_buffer,
             camera_bind_group,
             clock_buffer,
+            initial_vertex_uniform_buffers,
             compute_uniform_bind_group_layout,
             compute_storage_bind_group_layout,
             vertex_storage_bind_group_layout,
@@ -503,6 +532,32 @@ impl Renderer {
                 ),
             }],
         });
+
+        self.initial_vertex_uniform_buffers = (0..fractal_depth)
+            .map(|depth| {
+                let uniform_buffer =
+                    self.device
+                        .create_buffer(&wgpu::BufferDescriptor {
+                            label: Some(&format!("FC Uniform Buffer {}", depth)),
+                            size: std::mem::size_of::<[f32; 4]>() as u64,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(&format!("FC Uniform Buffer {} Bind Group", depth)),
+                    layout: &self.compute_uniform_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(
+                            uniform_buffer.as_entire_buffer_binding(),
+                        ),
+                    }],
+                });
+
+                (uniform_buffer, bind_group)
+            })
+            .collect::<Vec<_>>();
 
         self.prepare_indices();
     }
@@ -645,36 +700,6 @@ impl Renderer {
             ]),
         );
 
-        let uniform_buffers = (0..self.fractal_depth)
-            .map(|depth| {
-                let uniform_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("FC Uniform Buffer"),
-                            contents: bytemuck::cast_slice(&[
-                                depth as f32,
-                                second_frac * std::f32::consts::TAU,
-                                minute_frac * std::f32::consts::TAU,
-                                hour_frac * std::f32::consts::TAU,
-                            ]),
-                            usage: wgpu::BufferUsages::UNIFORM,
-                        });
-
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("FC Uniform Buffer Bind Group"),
-                    layout: &self.compute_uniform_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(
-                            uniform_buffer.as_entire_buffer_binding(),
-                        ),
-                    }],
-                });
-
-                (uniform_buffer, bind_group)
-            })
-            .collect::<Vec<_>>();
-
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -686,7 +711,13 @@ impl Renderer {
         });
         pass.set_pipeline(&self.vertices_compute_pipeline);
         pass.set_bind_group(0, &self.vertex_bind_group, &[]);
-        for (i, (_, bind_group)) in uniform_buffers.iter().enumerate() {
+        for (i, (buffer, bind_group)) in self.initial_vertex_uniform_buffers.iter().enumerate() {
+            self.queue.write_buffer(buffer, 0, bytemuck::cast_slice(&[
+                i as f32,
+                second_frac * std::f32::consts::TAU,
+                minute_frac * std::f32::consts::TAU,
+                hour_frac * std::f32::consts::TAU,
+            ]));
             pass.set_bind_group(1, bind_group, &[]);
 
             let workgroup_size = workgroup_size_for_depth((i + 1) as _) as u32;
