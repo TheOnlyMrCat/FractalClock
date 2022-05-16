@@ -5,3 +5,9 @@ cargo build --release
 [fc:run]
 export METAL_DEVICE_WRAPPER_TYPE=1
 cargo run --bin windowed --features bin
+
+[release:build]
+cargo build --bin windowed --features bin --release
+
+[release:run]
+cargo run --bin windowed --features bin --release
